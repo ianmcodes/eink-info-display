@@ -36,6 +36,16 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr uint32_t DISPLAY_TEST_HOLD_MS = 5000;
 constexpr size_t MAX_ENTITIES = 6;
 
+// Navigation buttons (active-low: pressed = LOW via internal pull-up).
+constexpr uint8_t BTN_PREV = 6;  // "previous" button
+constexpr uint8_t BTN_NEXT = 4;  // "next" button
+// Minimum ms between two recognised button events (debounce).
+constexpr uint32_t BTN_DEBOUNCE_MS = 250;
+
+uint32_t lastBtnAt = 0;        // millis() of the last accepted press
+bool prevBtnLast   = HIGH;     // last stable state of BTN_PREV
+bool nextBtnLast   = HIGH;     // last stable state of BTN_NEXT
+
 // ---------------------------------------------------------------------------
 // Screen rotation state
 // ---------------------------------------------------------------------------
@@ -651,6 +661,48 @@ void advanceScreen()
     currentScreenIndex = (currentScreenIndex + 1) % NUM_SCREENS;
 }
 
+void retreatScreen()
+{
+    currentScreenIndex = (currentScreenIndex + NUM_SCREENS - 1) % NUM_SCREENS;
+}
+
+// Reads both nav buttons and triggers a screen change if a fresh press is
+// detected.  Uses time-based debouncing: only one event is accepted per
+// BTN_DEBOUNCE_MS window regardless of which button caused it.
+// Returns true if a button was acted on (so loop() can skip the auto-advance
+// check for that iteration).
+bool checkButtons()
+{
+    const bool prevNow = digitalRead(BTN_PREV);
+    const bool nextNow = digitalRead(BTN_NEXT);
+    const uint32_t now = millis();
+
+    // Detect a falling edge (HIGH→LOW = button pressed) on either pin.
+    const bool prevPressed = (prevBtnLast == HIGH && prevNow == LOW);
+    const bool nextPressed = (nextBtnLast == HIGH && nextNow == LOW);
+
+    prevBtnLast = prevNow;
+    nextBtnLast = nextNow;
+
+    if ((prevPressed || nextPressed) &&
+        static_cast<int32_t>(now - lastBtnAt) >= static_cast<int32_t>(BTN_DEBOUNCE_MS)) {
+        lastBtnAt = now;
+
+        if (prevPressed) {
+            Serial.println("BTN: previous screen");
+            retreatScreen();
+        } else {
+            Serial.println("BTN: next screen");
+            advanceScreen();
+        }
+
+        showCurrentScreen();
+        nextScreenAt = millis() + SCREEN_DURATION_MS;
+        return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // Arduino lifecycle
 // ---------------------------------------------------------------------------
@@ -664,6 +716,9 @@ void setup()
     pinMode(EPD_POWER, OUTPUT);
     digitalWrite(EPD_POWER, HIGH);
     delay(500);
+    // Navigation buttons: active-low with internal pull-up resistors.
+    pinMode(BTN_PREV, INPUT_PULLUP);
+    pinMode(BTN_NEXT, INPUT_PULLUP);
     epd.begin();
     Serial.println("EPD clear test starting");
     epd.clear();
@@ -680,10 +735,14 @@ void setup()
 
 void loop()
 {
-    if (static_cast<int32_t>(millis() - nextScreenAt) >= 0) {
-        advanceScreen();
-        showCurrentScreen();
-        nextScreenAt = millis() + SCREEN_DURATION_MS;
+    // Button presses take priority; if one was handled skip the auto-advance
+    // check so we don't immediately roll to the next screen.
+    if (!checkButtons()) {
+        if (static_cast<int32_t>(millis() - nextScreenAt) >= 0) {
+            advanceScreen();
+            showCurrentScreen();
+            nextScreenAt = millis() + SCREEN_DURATION_MS;
+        }
     }
     delay(100);
 }
