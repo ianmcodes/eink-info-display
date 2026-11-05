@@ -489,7 +489,7 @@ void renderHA(const EntityData* entities, size_t count)
                          cellW, cellH);
     }
 
-    drawFooter();
+    // drawFooter();
     epd.display(display.getBuffer());
 }
 
@@ -542,22 +542,21 @@ void renderWeather(const WeatherData& wx)
         display.drawLine(cx + 1, y + 1, cx + cellW - 2, y + 1, 0);
         y += 6;
 
-        // Temperature (18 pt)
+        // Temperature and precip % (18 pt)
         display.setFont(&FreeMonoBold18pt7b);
-        display.setCursor(innerX, y + 22);
+        y += 22;
+        display.setCursor(innerX, y);
         display.print(p.temperature);
         display.print(p.tempUnit);
-
-        // Precip % and short forecast (12 pt)
-        display.setFont(&FreeMonoBold12pt7b);
-        y += 28;
         if (p.precipPct > 0) {
-            display.setCursor(innerX, y);
-            display.print("Rain ");
+            display.print(" ");
             display.print(p.precipPct);
             display.print("%");
-            y += 18;
         }
+
+        // Short forecast (12 pt)
+        display.setFont(&FreeMonoBold12pt7b);
+        y += 20;
         drawWrapped(shorten(p.shortForecast, 20), innerX, y, innerW, 16);
     }
 
@@ -577,7 +576,11 @@ void renderClock()
     struct tm t;
     localtime_r(&now, &t);
 
-    // Large time display in the centre.
+    const char* days[]   = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+    const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                             "Jul","Aug","Sep","Oct","Nov","Dec"};
+
+    // Line 1: time in large font, centred.
     display.setFont(&FreeMonoBold24pt7b);
     char timeBuf[9];  // "HH:MM AM\0"
     int hour12 = t.tm_hour % 12;
@@ -589,24 +592,32 @@ void renderClock()
     uint16_t tw, th;
     display.getTextBounds(timeBuf, 0, 0, &tx1, &ty1, &tw, &th);
     const int16_t timeX = (display.width() - static_cast<int16_t>(tw)) / 2 - tx1;
-    const int16_t timeY = 130;
+    const int16_t timeY = 110;
     display.setCursor(timeX, timeY);
     display.print(timeBuf);
 
-    // Date below the time.
+    // Line 2: day of week, centred.
     display.setFont(&FreeMonoBold18pt7b);
-    const char* days[]   = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
-    const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun",
-                             "Jul","Aug","Sep","Oct","Nov","Dec"};
-    char dateBuf[32];
-    snprintf(dateBuf, sizeof(dateBuf), "%s, %s %d %04d",
-             days[t.tm_wday], months[t.tm_mon], t.tm_mday, t.tm_year + 1900);
+    const char* dayStr = days[t.tm_wday];
+
+    int16_t wx1, wy1;
+    uint16_t ww, wh;
+    display.getTextBounds(dayStr, 0, 0, &wx1, &wy1, &ww, &wh);
+    const int16_t dayX = (display.width() - static_cast<int16_t>(ww)) / 2 - wx1;
+    const int16_t dayY = timeY + 42;
+    display.setCursor(dayX, dayY);
+    display.print(dayStr);
+
+    // Line 3: date (e.g. "Nov 4 2026"), centred.
+    char dateBuf[16];
+    snprintf(dateBuf, sizeof(dateBuf), "%s %d %04d",
+             months[t.tm_mon], t.tm_mday, t.tm_year + 1900);
 
     int16_t dx1, dy1;
     uint16_t dw, dh;
     display.getTextBounds(dateBuf, 0, 0, &dx1, &dy1, &dw, &dh);
     const int16_t dateX = (display.width() - static_cast<int16_t>(dw)) / 2 - dx1;
-    display.setCursor(dateX, timeY + 40);
+    display.setCursor(dateX, dayY + 36);
     display.print(dateBuf);
 
     drawFooter();
