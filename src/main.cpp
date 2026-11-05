@@ -388,7 +388,7 @@ int16_t drawHeader(const char* title)
     display.setFont(&FreeMonoBold12pt7b);
     display.setCursor(12, 22);
     display.print(title);
-    display.drawLine(0, 28, display.width(), 28, 0);
+    display.drawFastHLine(0, 28, display.width(), 0);
     return 32;  // gridTop
 }
 
@@ -416,8 +416,8 @@ void renderTestPattern()
     display.drawRect(8, 8, display.width() - 16, display.height() - 16, 0);
     display.drawLine(0, 0, right, bottom, 0);
     display.drawLine(right, 0, 0, bottom, 0);
-    display.drawLine(display.width() / 2, 8, display.width() / 2, bottom - 8, 0);
-    display.drawLine(8, display.height() / 2, right - 8, display.height() / 2, 0);
+    display.drawFastVLine(display.width() / 2, 8, display.height() - 16, 0);
+    display.drawFastHLine(8, display.height() / 2, display.width() - 16, 0);
     display.setFont(&FreeMonoBold18pt7b);
     display.setCursor(28, 54);
     display.print("EPD TEST");
@@ -448,7 +448,7 @@ void renderEntityCell(const EntityData& entity, int16_t cellX, int16_t cellY,
         int16_t y = cellY + 18;
         drawWrapped(shorten(entity.name, 22), innerX, y, innerW, 18);
 
-        display.drawLine(cellX + 1, y + 2, cellX + cellW - 2, y + 2, 0);
+        display.drawFastHLine(cellX + 1, y - 6, cellW - 2, 0);
         y += 8;
 
         display.setFont(&FreeMonoBold18pt7b);
@@ -539,7 +539,7 @@ void renderWeather(const WeatherData& wx)
         int16_t y = cy + 18;
         drawWrapped(shorten(p.name, 16), innerX, y, innerW, 18);
 
-        display.drawLine(cx + 1, y + 1, cx + cellW - 2, y + 1, 0);
+        display.drawFastHLine(cx + 1, y - 6, cellW - 2, 0);
         y += 6;
 
         // Temperature and precip % (18 pt)
