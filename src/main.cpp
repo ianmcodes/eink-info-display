@@ -586,7 +586,7 @@ void renderClock()
     int hour12 = t.tm_hour % 12;
     if (hour12 == 0) hour12 = 12;
     const char* ampm = t.tm_hour < 12 ? "AM" : "PM";
-    snprintf(timeBuf, sizeof(timeBuf), "%2d:%02d %s", hour12, t.tm_min, ampm);
+    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d %s", hour12, t.tm_min, ampm);
 
     int16_t tx1, ty1;
     uint16_t tw, th;
