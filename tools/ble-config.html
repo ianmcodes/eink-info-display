@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EinkDisplay BLE Config</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --card: #ffffff;
+    --border: #ddd;
+    --accent: #1a73e8;
+    --accent-hover: #1558b0;
+    --danger: #d93025;
+    --success: #188038;
+    --warn: #e8710a;
+    --text: #202124;
+    --muted: #5f6368;
+    --radius: 10px;
+    --shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 { font-size: 1.4rem; font-weight: 600; }
+  h2 { font-size: 1rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+       letter-spacing: .05em; margin-bottom: 12px; }
+  .container { max-width: 640px; margin: 0 auto; }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Instructions ─────────────────────────────────────────────────── */
+  .instructions { background: #e8f0fe; border-left: 4px solid var(--accent); }
+  .instructions p { margin-bottom: 6px; font-size: .95rem; }
+  .instructions p:last-child { margin-bottom: 0; }
+  .instructions strong { color: var(--accent); }
+
+  /* ── Status bar ───────────────────────────────────────────────────── */
+  #statusBar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-radius: var(--radius);
+    font-weight: 500; font-size: .95rem;
+    background: var(--card); box-shadow: var(--shadow);
+    margin-bottom: 16px;
+  }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    flex-shrink: 0;
+    background: #ccc;
+  }
+  .dot.connected { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .dot.error     { background: var(--danger);  box-shadow: 0 0 6px var(--danger);  }
+
+  /* ── Buttons ──────────────────────────────────────────────────────── */
+  button {
+    cursor: pointer; border: none; border-radius: 6px;
+    padding: 10px 18px; font-size: .95rem; font-weight: 500;
+    transition: background .15s, opacity .15s;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary   { background: var(--accent);  color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-danger    { background: var(--danger);  color: #fff; }
+  .btn-sm        { padding: 6px 12px; font-size: .85rem; }
+  .btn-secondary { background: #e8eaed; color: var(--text); }
+  .btn-secondary:hover:not(:disabled) { background: #dadce0; }
+
+  /* ── Form elements ────────────────────────────────────────────────── */
+  label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: 4px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=number], input[type=url],
+  select, textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: .95rem; color: var(--text);
+    background: #fff; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+
+  /* ── Password toggle ──────────────────────────────────────────────── */
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 42px; }
+  .pw-toggle {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; padding: 4px; cursor: pointer;
+    color: var(--muted); font-size: 1rem; line-height: 1;
+  }
+
+  /* ── Checkbox ─────────────────────────────────────────────────────── */
+  .checkbox-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .checkbox-row input { width: auto; }
+  .checkbox-row label { margin: 0; font-size: .95rem; color: var(--text); }
+
+  /* ── Entity list ──────────────────────────────────────────────────── */
+  #entityList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .entity-row {
+    display: flex; gap: 8px; align-items: center;
+    background: #f8f9fa; border-radius: 6px; padding: 8px;
+  }
+  .entity-row input { flex: 1; }
+  .entity-id { flex: 2 !important; }
+
+  /* ── Save result chips ────────────────────────────────────────────── */
+  #saveResults { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    padding: 4px 10px; border-radius: 20px; font-size: .8rem; font-weight: 500;
+  }
+  .chip.ok  { background: #e6f4ea; color: var(--success); }
+  .chip.err { background: #fce8e6; color: var(--danger); }
+
+  /* ── Top bar ──────────────────────────────────────────────────────── */
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .top-bar .logo { font-size: 1.5rem; }
+
+  /* ── Unsupported warning ──────────────────────────────────────────── */
+  #unsupported {
+    display: none;
+    background: #fce8e6; border-left: 4px solid var(--danger);
+    padding: 12px 16px; border-radius: var(--radius); margin-bottom: 16px;
+    font-size: .95rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="top-bar">
+    <div>
+      <span class="logo">🖥️</span>
+      <h1 style="display:inline;vertical-align:middle;margin-left:8px;">EinkDisplay Config</h1>
+    </div>
+  </div>
+
+  <div id="unsupported">
+    ⚠️ <strong>Web Bluetooth is not supported in this browser.</strong>
+    Please use Chrome or Edge on Android or desktop (not iOS Safari).
+  </div>
+
+  <!-- Instructions -->
+  <div class="card instructions">
+    <h2 style="color:var(--accent);text-transform:none;font-size:1rem;">Getting Started</h2>
+    <p><strong>1.</strong> On your e-paper display, navigate to the <strong>Config screen</strong> using the hardware buttons. BLE will start automatically.</p>
+    <p><strong>2.</strong> Click <strong>Connect</strong> below, select <em>EinkDisplay</em> from the list, and pair.</p>
+    <p><strong>3.</strong> Fill in your settings and click <strong>Save All</strong>. The display will update within seconds.</p>
+  </div>
+
+  <!-- Status / connect -->
+  <div id="statusBar">
+    <div class="dot" id="dot"></div>
+    <span id="statusText">Not connected</span>
+    <button class="btn-primary" id="btnConnect" style="margin-left:auto;">Connect</button>
+    <button class="btn-secondary" id="btnDisconnect" style="display:none;">Disconnect</button>
+  </div>
+
+  <!-- Wi-Fi -->
+  <div class="card">
+    <h2>Wi-Fi</h2>
+    <div class="field">
+      <label for="wifiSsid">SSID (Network Name)</label>
+      <input type="text" id="wifiSsid" placeholder="MyNetwork" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="wifiPass">Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="wifiPass" placeholder="••••••••" autocomplete="new-password" />
+        <button class="pw-toggle" type="button" data-target="wifiPass" title="Toggle visibility">👁</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Home Assistant -->
+  <div class="card">
+    <h2>Home Assistant</h2>
+    <div class="field">
+      <label for="haUrl">Base URL</label>
+      <input type="url" id="haUrl" placeholder="http://homeassistant.local:8123" />
+    </div>
+    <div class="field">
+      <label for="haToken">Long-Lived Access Token</label>
+      <div class="pw-wrap">
+        <input type="password" id="haToken" placeholder="Paste token here" autocomplete="off" />
+        <button class="pw-toggle" type="button" data-target="haToken" title="Toggle visibility">👁</button>
+      </div>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="haTls" />
+      <label for="haTls">Allow Insecure TLS (self-signed certificate)</label>
+    </div>
+  </div>
+
+  <!-- Weather -->
+  <div class="card">
+    <h2>Weather (NWS — US Only)</h2>
+    <div class="row">
+      <div class="field">
+        <label for="nwsLat">Latitude</label>
+        <input type="number" id="nwsLat" placeholder="41.8781" step="0.0001" min="-90" max="90" />
+      </div>
+      <div class="field">
+        <label for="nwsLon">Longitude</label>
+        <input type="number" id="nwsLon" placeholder="-87.6298" step="0.0001" min="-180" max="180" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Timezone -->
+  <div class="card">
+    <h2>Timezone</h2>
+    <div class="field">
+      <label for="tzPreset">Quick Select</label>
+      <select id="tzPreset">
+        <option value="">— choose a preset —</option>
+        <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
+        <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
+        <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
+        <option value="MST7">US Mountain (no DST / Arizona)</option>
+        <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+        <option value="AKST9AKDT,M3.2.0,M11.1.0">US Alaska</option>
+        <option value="HST10">US Hawaii</option>
+        <option value="UTC0">UTC</option>
+        <option value="GMT0BST,M3.5.0/1,M10.5.0">UK (GMT/BST)</option>
+        <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe (CET/CEST)</option>
+        <option value="JST-9">Japan (JST)</option>
+        <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia Eastern</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="tzPosix">POSIX TZ String</label>
+      <input type="text" id="tzPosix" placeholder="CST6CDT,M3.2.0,M11.1.0" />
+    </div>
+  </div>
+
+  <!-- Display -->
+  <div class="card">
+    <h2>Display</h2>
+    <div class="field">
+      <label for="screenDurMin">Screen Duration (minutes)</label>
+      <input type="number" id="screenDurMin" placeholder="2" min="0.1" step="0.1" />
+      <span style="font-size:.8rem;color:var(--muted);display:block;margin-top:4px;">
+        Each screen is shown for this long before rotating. Minimum ~6 seconds.
+      </span>
+    </div>
+  </div>
+
+  <!-- Entities -->
+  <div class="card">
+    <h2>Home Assistant Entities</h2>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:12px;">
+      Up to 6 entities. Leave <em>Label</em> blank to use the HA friendly name.
+    </p>
+    <div id="entityList"></div>
+    <button class="btn-secondary btn-sm" id="btnAddEntity" type="button">+ Add Entity</button>
+  </div>
+
+  <!-- Config Page URL -->
+  <div class="card">
+    <h2>Config Page URL</h2>
+    <div class="field">
+      <label for="configUrl">URL of this page (shown as a hint on the display)</label>
+      <input type="url" id="configUrl" placeholder="https://example.com/eink-config.html" />
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div class="card">
+    <button class="btn-primary" id="btnSave" style="width:100%;padding:14px;" disabled>Save All to Device</button>
+    <div id="saveResults"></div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+'use strict';
+
+// ── UUIDs ──────────────────────────────────────────────────────────────────
+const SVC_UUID        = '12345678-1234-1234-1234-123456789abc';
+const UUID_WIFI_SSID  = '12345678-0001-1234-1234-123456789abc';
+const UUID_WIFI_PASS  = '12345678-0002-1234-1234-123456789abc';
+const UUID_HA_URL     = '12345678-0003-1234-1234-123456789abc';
+const UUID_HA_TOKEN   = '12345678-0004-1234-1234-123456789abc';
+const UUID_HA_TLS     = '12345678-0005-1234-1234-123456789abc';
+const UUID_NWS_LAT    = '12345678-0006-1234-1234-123456789abc';
+const UUID_NWS_LON    = '12345678-0007-1234-1234-123456789abc';
+const UUID_TZ_POSIX   = '12345678-0008-1234-1234-123456789abc';
+const UUID_SCREEN_DUR = '12345678-0009-1234-1234-123456789abc';
+const UUID_ENTITIES   = '12345678-000a-1234-1234-123456789abc';
+const UUID_CFG_URL    = '12345678-000b-1234-1234-123456789abc';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let device = null;
+let server = null;
+let service = null;
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const dot          = document.getElementById('dot');
+const statusText   = document.getElementById('statusText');
+const btnConnect   = document.getElementById('btnConnect');
+const btnDisconnect= document.getElementById('btnDisconnect');
+const btnSave      = document.getElementById('btnSave');
+const saveResults  = document.getElementById('saveResults');
+const entityList   = document.getElementById('entityList');
+
+// ── Browser support check ──────────────────────────────────────────────────
+if (!navigator.bluetooth) {
+  document.getElementById('unsupported').style.display = 'block';
+  btnConnect.disabled = true;
+}
+
+// ── Password toggles ───────────────────────────────────────────────────────
+document.querySelectorAll('.pw-toggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = document.getElementById(btn.dataset.target);
+    target.type = target.type === 'password' ? 'text' : 'password';
+    btn.textContent = target.type === 'password' ? '👁' : '🙈';
+  });
+});
+
+// ── Timezone preset ────────────────────────────────────────────────────────
+document.getElementById('tzPreset').addEventListener('change', e => {
+  if (e.target.value) document.getElementById('tzPosix').value = e.target.value;
+});
+
+// ── Entity list ────────────────────────────────────────────────────────────
+function renderEntityRows(entities) {
+  entityList.innerHTML = '';
+  entities.forEach((e, i) => addEntityRow(e.id || '', e.label || ''));
+}
+
+function addEntityRow(id = '', label = '') {
+  const row = document.createElement('div');
+  row.className = 'entity-row';
+  row.innerHTML = `
+    <input class="entity-id" type="text" placeholder="sensor.example" value="${escHtml(id)}" title="Entity ID" />
+    <input class="entity-label" type="text" placeholder="Label (optional)" value="${escHtml(label)}" title="Label" />
+    <button class="btn-secondary btn-sm" type="button" onclick="this.closest('.entity-row').remove()">✕</button>
+  `;
+  entityList.appendChild(row);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getEntitiesJson() {
+  const rows = entityList.querySelectorAll('.entity-row');
+  const arr = [];
+  rows.forEach(row => {
+    const id    = row.querySelector('.entity-id').value.trim();
+    const label = row.querySelector('.entity-label').value.trim();
+    if (id) arr.push({ id, label });
+  });
+  return JSON.stringify(arr);
+}
+
+document.getElementById('btnAddEntity').addEventListener('click', () => {
+  const rows = entityList.querySelectorAll('.entity-row');
+  if (rows.length >= 6) { alert('Maximum 6 entities supported.'); return; }
+  addEntityRow();
+});
+
+// ── BLE helpers ────────────────────────────────────────────────────────────
+function setStatus(text, state) {
+  statusText.textContent = text;
+  dot.className = 'dot' + (state ? ' ' + state : '');
+}
+
+async function getChar(uuid) {
+  return await service.getCharacteristic(uuid);
+}
+
+async function readStr(uuid) {
+  try {
+    const ch  = await getChar(uuid);
+    const val = await ch.readValue();
+    return dec.decode(val);
+  } catch { return ''; }
+}
+
+async function readByte(uuid) {
+  try {
+    const ch  = await getChar(uuid);
+    const val = await ch.readValue();
+    return val.getUint8(0);
+  } catch { return 0; }
+}
+
+async function writeStr(uuid, str) {
+  const ch  = await getChar(uuid);
+  await ch.writeValueWithResponse(enc.encode(str));
+}
+
+async function writeByte(uuid, b) {
+  const ch  = await getChar(uuid);
+  await ch.writeValueWithResponse(new Uint8Array([b]));
+}
+
+// ── Connect ────────────────────────────────────────────────────────────────
+btnConnect.addEventListener('click', async () => {
+  try {
+    setStatus('Scanning…', '');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'EinkDisplay' }],
+      optionalServices: [SVC_UUID]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
+    setStatus('Connecting…', '');
+    server  = await device.gatt.connect();
+    service = await server.getPrimaryService(SVC_UUID);
+
+    setStatus(`Connected to ${device.name}`, 'connected');
+    btnConnect.style.display    = 'none';
+    btnDisconnect.style.display = '';
+    btnSave.disabled = false;
+
+    await readAllValues();
+  } catch(err) {
+    setStatus('Error: ' + err.message, 'error');
+    console.error(err);
+  }
+});
+
+// ── Disconnect ─────────────────────────────────────────────────────────────
+btnDisconnect.addEventListener('click', () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+});
+
+function onDisconnected() {
+  setStatus('Disconnected', 'error');
+  btnConnect.style.display    = '';
+  btnDisconnect.style.display = 'none';
+  btnSave.disabled = true;
+  server = null; service = null; device = null;
+}
+
+// ── Read all values from device ────────────────────────────────────────────
+async function readAllValues() {
+  setStatus('Reading values…', 'connected');
+
+  document.getElementById('wifiSsid').value = await readStr(UUID_WIFI_SSID);
+  document.getElementById('wifiPass').value = await readStr(UUID_WIFI_PASS);
+  document.getElementById('haUrl').value    = await readStr(UUID_HA_URL);
+  document.getElementById('haToken').value  = await readStr(UUID_HA_TOKEN);
+
+  const tlsByte = await readByte(UUID_HA_TLS);
+  document.getElementById('haTls').checked  = tlsByte !== 0;
+
+  document.getElementById('nwsLat').value   = await readStr(UUID_NWS_LAT);
+  document.getElementById('nwsLon').value   = await readStr(UUID_NWS_LON);
+
+  const tz = await readStr(UUID_TZ_POSIX);
+  document.getElementById('tzPosix').value  = tz;
+
+  const durMs = parseInt(await readStr(UUID_SCREEN_DUR), 10) || 120000;
+  document.getElementById('screenDurMin').value = (durMs / 60000).toFixed(2).replace(/\.?0+$/, '');
+
+  const entJson = await readStr(UUID_ENTITIES);
+  try {
+    const arr = JSON.parse(entJson);
+    if (Array.isArray(arr)) renderEntityRows(arr);
+  } catch { /* keep existing rows */ }
+
+  document.getElementById('configUrl').value = await readStr(UUID_CFG_URL);
+
+  setStatus(`Connected to ${device.name}`, 'connected');
+}
+
+// ── Save all ───────────────────────────────────────────────────────────────
+btnSave.addEventListener('click', async () => {
+  btnSave.disabled = true;
+  saveResults.innerHTML = '';
+  setStatus('Saving…', 'connected');
+
+  const durMin = parseFloat(document.getElementById('screenDurMin').value) || 2;
+  const durMs  = Math.max(6000, Math.round(durMin * 60000));
+
+  const writes = [
+    { uuid: UUID_WIFI_SSID,  label: 'Wi-Fi SSID',    fn: () => writeStr(UUID_WIFI_SSID,  document.getElementById('wifiSsid').value) },
+    { uuid: UUID_WIFI_PASS,  label: 'Wi-Fi Pass',     fn: () => writeStr(UUID_WIFI_PASS,  document.getElementById('wifiPass').value) },
+    { uuid: UUID_HA_URL,     label: 'HA URL',          fn: () => writeStr(UUID_HA_URL,     document.getElementById('haUrl').value) },
+    { uuid: UUID_HA_TOKEN,   label: 'HA Token',        fn: () => writeStr(UUID_HA_TOKEN,   document.getElementById('haToken').value) },
+    { uuid: UUID_HA_TLS,     label: 'HA TLS',          fn: () => writeByte(UUID_HA_TLS,   document.getElementById('haTls').checked ? 1 : 0) },
+    { uuid: UUID_NWS_LAT,    label: 'NWS Lat',         fn: () => writeStr(UUID_NWS_LAT,   document.getElementById('nwsLat').value) },
+    { uuid: UUID_NWS_LON,    label: 'NWS Lon',         fn: () => writeStr(UUID_NWS_LON,   document.getElementById('nwsLon').value) },
+    { uuid: UUID_TZ_POSIX,   label: 'Timezone',        fn: () => writeStr(UUID_TZ_POSIX,  document.getElementById('tzPosix').value) },
+    { uuid: UUID_SCREEN_DUR, label: 'Screen Duration', fn: () => writeStr(UUID_SCREEN_DUR, String(durMs)) },
+    { uuid: UUID_ENTITIES,   label: 'Entities',        fn: () => writeStr(UUID_ENTITIES,  getEntitiesJson()) },
+    { uuid: UUID_CFG_URL,    label: 'Config URL',      fn: () => writeStr(UUID_CFG_URL,   document.getElementById('configUrl').value) },
+  ];
+
+  let allOk = true;
+  for (const w of writes) {
+    try {
+      await w.fn();
+      addChip(w.label, true);
+    } catch(err) {
+      addChip(w.label + ': ' + err.message, false);
+      allOk = false;
+      console.error('Write failed', w.label, err);
+    }
+  }
+
+  setStatus(allOk ? `Saved ✓ (${device.name})` : 'Some writes failed', 'connected');
+  btnSave.disabled = false;
+});
+
+function addChip(text, ok) {
+  const chip = document.createElement('span');
+  chip.className = 'chip ' + (ok ? 'ok' : 'err');
+  chip.textContent = (ok ? '✓ ' : '✗ ') + text;
+  saveResults.appendChild(chip);
+}
+</script>
+</body>
+</html>

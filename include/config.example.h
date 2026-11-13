@@ -57,3 +57,11 @@ constexpr float NWS_LONGITUDE = 0.0f;   // e.g. -87.6298
 //   US Pacific:  "PST8PDT,M3.2.0,M11.1.0"
 //   UTC:         "UTC0"
 constexpr char TZ_POSIX[] = "UTC0";
+
+// ---------------------------------------------------------------------------
+// Web Bluetooth configuration page URL
+// ---------------------------------------------------------------------------
+// Optional short URL directing to your hosted ble-config.html page.
+// Shown on the e-paper display when the CONFIGURE screen is active.
+constexpr char CONFIG_PAGE_URL[] = "";
+

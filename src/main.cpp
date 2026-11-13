@@ -11,11 +11,16 @@
 #include <Fonts/FreeMonoBold24pt7b.h>
 #include "green_epd.h"
 
+// config.h (or the example fallback) is still included for compile-time
+// defaults only.  All runtime values come from gConfig (config_store.h).
 #if __has_include("config.h")
 #include "config.h"
 #else
 #include "config.example.h"
 #endif
+
+#include "config_store.h"
+#include "ble_config.h"
 
 // Elecrow CrowPanel 4.2-inch E-paper HMI (SSD1683), verified against the
 // vendor's published V1.0 pin map.
@@ -50,12 +55,15 @@ bool nextBtnLast   = HIGH;     // last stable state of BTN_NEXT
 // Screen rotation state
 // ---------------------------------------------------------------------------
 
-enum Screen { SCREEN_HA, SCREEN_WEATHER, SCREEN_CLOCK };
-constexpr Screen SCREEN_ORDER[] = { SCREEN_HA, SCREEN_WEATHER, SCREEN_CLOCK };
+enum Screen { SCREEN_HA, SCREEN_WEATHER, SCREEN_CLOCK, SCREEN_CONFIG };
+constexpr Screen SCREEN_ORDER[] = { SCREEN_HA, SCREEN_WEATHER, SCREEN_CLOCK, SCREEN_CONFIG };
 constexpr size_t NUM_SCREENS = sizeof(SCREEN_ORDER) / sizeof(SCREEN_ORDER[0]);
 
 size_t currentScreenIndex = 0;
 uint32_t nextScreenAt = 0;
+
+// Track whether the Config screen's BLE session is active.
+static bool s_bleActive = false;
 
 // ---------------------------------------------------------------------------
 // Data structures
@@ -91,6 +99,13 @@ struct WeatherData {
 // Utilities
 // ---------------------------------------------------------------------------
 
+bool isPlaceholder(const std::string& value)
+{
+    return value.empty() ||
+           value.find("YOUR_")  != std::string::npos ||
+           value.find("PASTE_") != std::string::npos;
+}
+
 bool isPlaceholder(const char* value)
 {
     return !value || value[0] == '\0' || strstr(value, "YOUR_") ||
@@ -112,7 +127,7 @@ bool connectWiFi(String& error)
     if (WiFi.status() == WL_CONNECTED) return true;
 
     WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(gConfig.wifiSsid.c_str(), gConfig.wifiPassword.c_str());
     const uint32_t started = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - started < WIFI_CONNECT_TIMEOUT_MS) {
         delay(250);
@@ -174,7 +189,7 @@ void syncNtp()
     }
     // configTime sets the POSIX TZ env var and syncs from the pool.
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    setenv("TZ", TZ_POSIX, 1);
+    setenv("TZ", gConfig.tzPosix.c_str(), 1);
     tzset();
 
     // Wait up to 10 s for the time to be set.
@@ -204,8 +219,8 @@ void syncNtp()
 EntityData fetchEntity(const char* entityId, const char* configLabel)
 {
     EntityData result;
-    if (isPlaceholder(WIFI_SSID) || isPlaceholder(WIFI_PASSWORD) ||
-        isPlaceholder(HA_BASE_URL) || isPlaceholder(HA_TOKEN) ||
+    if (isPlaceholder(gConfig.wifiSsid) || isPlaceholder(gConfig.wifiPassword) ||
+        isPlaceholder(gConfig.haBaseUrl) || isPlaceholder(gConfig.haToken) ||
         !entityId || entityId[0] == '\0') {
         result.error = "Configure include/config.h first";
         return result;
@@ -213,14 +228,14 @@ EntityData fetchEntity(const char* entityId, const char* configLabel)
 
     if (!connectWiFi(result.error)) return result;
 
-    const String endpoint = String(HA_BASE_URL) + "/api/states/" + entityId;
+    const String endpoint = String(gConfig.haBaseUrl.c_str()) + "/api/states/" + entityId;
     HTTPClient http;
     WiFiClient plainClient;
     WiFiClientSecure secureClient;
     bool began = false;
 
     if (endpoint.startsWith("https://")) {
-        if (HA_ALLOW_INSECURE_TLS) secureClient.setInsecure();
+        if (gConfig.haAllowInsecureTls) secureClient.setInsecure();
         began = http.begin(secureClient, endpoint);
     } else {
         began = http.begin(plainClient, endpoint);
@@ -232,7 +247,7 @@ EntityData fetchEntity(const char* entityId, const char* configLabel)
 
     http.setConnectTimeout(10000);
     http.setTimeout(15000);
-    http.addHeader("Authorization", String("Bearer ") + HA_TOKEN);
+    http.addHeader("Authorization", String("Bearer ") + gConfig.haToken.c_str());
     http.addHeader("Accept", "application/json");
     const int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
@@ -278,7 +293,7 @@ WeatherData fetchWeather()
 {
     WeatherData result;
 
-    if (isPlaceholder(WIFI_SSID) || isPlaceholder(WIFI_PASSWORD)) {
+    if (isPlaceholder(gConfig.wifiSsid) || isPlaceholder(gConfig.wifiPassword)) {
         result.error = "Configure Wi-Fi in config.h";
         return result;
     }
@@ -288,7 +303,7 @@ WeatherData fetchWeather()
     char pointsUrl[64];
     snprintf(pointsUrl, sizeof(pointsUrl),
              "https://api.weather.gov/points/%.4f,%.4f",
-             NWS_LATITUDE, NWS_LONGITUDE);
+             gConfig.nwsLatitude, gConfig.nwsLongitude);
 
     String body;
     if (!httpGet(pointsUrl, body, result.error)) {
@@ -625,22 +640,100 @@ void renderClock()
 }
 
 // ---------------------------------------------------------------------------
+// Render: config / BLE provisioning screen
+// ---------------------------------------------------------------------------
+
+void renderConfig()
+{
+    drawHeader("CONFIGURE");
+
+    display.setFont(&FreeMonoBold12pt7b);
+    int16_t y = 50;
+    const int16_t lh = 22;
+    const int16_t lx = 12;
+    const int16_t maxW = display.width() - 24;
+
+    // BLE status line
+    if (s_bleActive) {
+        const int clients = bleConfigHasClients() ? 1 : 0;  // approximate
+        String bleStatus = "Bluetooth: ON";
+        if (bleConfigHasClients()) {
+            bleStatus += " (connected)";
+        } else {
+            bleStatus += " (waiting)";
+        }
+        display.setCursor(lx, y);
+        display.print(bleStatus);
+    } else {
+        display.setCursor(lx, y);
+        display.print("Bluetooth: OFF");
+    }
+    y += lh;
+
+    // Device name
+    display.setCursor(lx, y);
+    display.print("Device: EinkDisplay");
+    y += lh;
+
+    // Config page URL hint
+    display.drawFastHLine(0, y - 4, display.width(), 0);
+    y += 6;
+
+    if (!gConfig.configPageUrl.empty()) {
+        display.setCursor(lx, y);
+        display.print("Visit:");
+        y += lh;
+        drawWrapped(String(gConfig.configPageUrl.c_str()), lx, y, maxW, lh);
+    } else {
+        display.setFont(&FreeMonoBold12pt7b);
+        drawWrapped("Set configPageUrl in config.h to show the web config URL here.",
+                    lx, y, maxW, lh);
+    }
+
+    // Footer guidance
+    display.setFont(&FreeMonoBold12pt7b);
+    display.setCursor(lx, display.height() - 28);
+    display.print("BLE starts on this screen");
+
+    epd.display(display.getBuffer());
+}
+
+// ---------------------------------------------------------------------------
 // Screen update dispatch
 // ---------------------------------------------------------------------------
 
 void updateHA()
 {
-    constexpr size_t numEntities = sizeof(HA_ENTITIES) / sizeof(HA_ENTITIES[0]);
-    static_assert(numEntities <= MAX_ENTITIES,
-                  "Too many entities in HA_ENTITIES — reduce to 6 or fewer.");
+    // Parse entitiesJson at runtime; fall back gracefully on parse errors.
+    JsonDocument doc;
+    const DeserializationError err = deserializeJson(doc, gConfig.entitiesJson);
 
     EntityData results[MAX_ENTITIES];
-    for (size_t i = 0; i < numEntities; ++i) {
-        results[i] = fetchEntity(HA_ENTITIES[i].entityId, HA_ENTITIES[i].label);
-        Serial.printf("HA [%s]: %s\n",
-                      HA_ENTITIES[i].entityId,
-                      results[i].ok ? results[i].state.c_str() : results[i].error.c_str());
+    size_t numEntities = 0;
+
+    if (err || !doc.is<JsonArray>()) {
+        Serial.printf("[HA] Entity JSON parse error: %s\n", err.c_str());
+        results[0].error = "Bad entity config";
+        numEntities = 1;
+    } else {
+        JsonArray arr = doc.as<JsonArray>();
+        for (JsonObject obj : arr) {
+            if (numEntities >= MAX_ENTITIES) break;
+            const char* entityId = obj["id"] | "";
+            const char* label    = obj["label"] | "";
+            results[numEntities] = fetchEntity(entityId, label);
+            Serial.printf("HA [%s]: %s\n", entityId,
+                          results[numEntities].ok
+                              ? results[numEntities].state.c_str()
+                              : results[numEntities].error.c_str());
+            ++numEntities;
+        }
+        if (numEntities == 0) {
+            results[0].error = "No entities configured";
+            numEntities = 1;
+        }
     }
+
     renderHA(results, numEntities);
 }
 
@@ -658,12 +751,31 @@ void updateClock()
     renderClock();
 }
 
+void updateConfig()
+{
+    // Start BLE if not already running.
+    if (!s_bleActive) {
+        bleConfigBegin();
+        s_bleActive = true;
+    }
+    renderConfig();
+}
+
 void showCurrentScreen()
 {
-    switch (SCREEN_ORDER[currentScreenIndex]) {
+    const Screen current = SCREEN_ORDER[currentScreenIndex];
+
+    // If we're leaving the Config screen, stop BLE.
+    if (s_bleActive && current != SCREEN_CONFIG) {
+        bleConfigEnd();
+        s_bleActive = false;
+    }
+
+    switch (current) {
         case SCREEN_HA:      updateHA();      break;
         case SCREEN_WEATHER: updateWeather(); break;
         case SCREEN_CLOCK:   updateClock();   break;
+        case SCREEN_CONFIG:  updateConfig();  break;
     }
 }
 
@@ -708,7 +820,7 @@ bool checkButtons()
         }
 
         showCurrentScreen();
-        nextScreenAt = millis() + SCREEN_DURATION_MS;
+        nextScreenAt = millis() + gConfig.screenDurationMs;
         return true;
     }
     return false;
@@ -730,6 +842,10 @@ void setup()
     // Navigation buttons: active-low with internal pull-up resistors.
     pinMode(BTN_PREV, INPUT_PULLUP);
     pinMode(BTN_NEXT, INPUT_PULLUP);
+
+    // Load config from NVS (falls back to compile-time constants).
+    loadConfig();
+
     epd.begin();
     Serial.println("EPD clear test starting");
     epd.clear();
@@ -741,18 +857,30 @@ void setup()
 
     currentScreenIndex = 0;
     showCurrentScreen();
-    nextScreenAt = millis() + SCREEN_DURATION_MS;
+    nextScreenAt = millis() + gConfig.screenDurationMs;
 }
 
 void loop()
 {
+    // If on the Config screen and BLE wrote new values, reload and re-render.
+    if (SCREEN_ORDER[currentScreenIndex] == SCREEN_CONFIG && bleConfigWasUpdated()) {
+        Serial.println("[cfg] BLE update detected — reloading config");
+        loadConfig();
+        // Re-apply timezone immediately.
+        setenv("TZ", gConfig.tzPosix.c_str(), 1);
+        tzset();
+        renderConfig();
+        nextScreenAt = millis() + gConfig.screenDurationMs;
+        return;
+    }
+
     // Button presses take priority; if one was handled skip the auto-advance
     // check so we don't immediately roll to the next screen.
     if (!checkButtons()) {
         if (static_cast<int32_t>(millis() - nextScreenAt) >= 0) {
             advanceScreen();
             showCurrentScreen();
-            nextScreenAt = millis() + SCREEN_DURATION_MS;
+            nextScreenAt = millis() + gConfig.screenDurationMs;
         }
     }
     delay(100);
