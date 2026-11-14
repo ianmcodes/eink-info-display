@@ -419,7 +419,10 @@ btnConnect.addEventListener('click', async () => {
   try {
     setStatus('Scanning…', '');
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ name: 'EinkDisplay' }],
+      filters: [
+        { name: 'EinkDisplay' },
+        { services: [SVC_UUID] }
+      ],
       optionalServices: [SVC_UUID]
     });
     device.addEventListener('gattserverdisconnected', onDisconnected);

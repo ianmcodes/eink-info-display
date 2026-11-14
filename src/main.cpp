@@ -779,9 +779,14 @@ void showCurrentScreen()
     }
 }
 
-void advanceScreen()
+void advanceScreen(bool fromBtn)
 {
     currentScreenIndex = (currentScreenIndex + 1) % NUM_SCREENS;
+    if (!fromBtn && SCREEN_ORDER[currentScreenIndex] == SCREEN_CONFIG) {
+        // Do not auto-advance to the Config screen. Skip to the next non-Config screen.
+        advanceScreen(false);
+        return;
+    }
 }
 
 void retreatScreen()
@@ -816,7 +821,7 @@ bool checkButtons()
             retreatScreen();
         } else {
             Serial.println("BTN: next screen");
-            advanceScreen();
+            advanceScreen(true);
         }
 
         showCurrentScreen();
@@ -877,8 +882,11 @@ void loop()
     // Button presses take priority; if one was handled skip the auto-advance
     // check so we don't immediately roll to the next screen.
     if (!checkButtons()) {
-        if (static_cast<int32_t>(millis() - nextScreenAt) >= 0) {
-            advanceScreen();
+        // Do not auto-advance away from the Config screen so the user can configure.
+        if (SCREEN_ORDER[currentScreenIndex] == SCREEN_CONFIG) {
+            nextScreenAt = millis() + gConfig.screenDurationMs;
+        } else if (static_cast<int32_t>(millis() - nextScreenAt) >= 0) {
+            advanceScreen(false);
             showCurrentScreen();
             nextScreenAt = millis() + gConfig.screenDurationMs;
         }

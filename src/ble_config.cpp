@@ -26,6 +26,7 @@ static constexpr char CFG_URL_UUID[]   = "12345678-000B-1234-1234-123456789ABC";
 // Module state
 // ---------------------------------------------------------------------------
 
+static bool              s_initialized = false;
 static bool              s_bleRunning  = false;
 static volatile bool     s_updated     = false;
 static NimBLEServer*     s_server      = nullptr;
@@ -40,12 +41,12 @@ public:
     void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override {
         Serial.printf("[BLE] Client connected: %s\n",
                       info.getAddress().toString().c_str());
-        // Allow more connections; re-start advertising for additional clients.
-        server->startAdvertising();
     }
     void onDisconnect(NimBLEServer* server, NimBLEConnInfo& info, int reason) override {
         Serial.printf("[BLE] Client disconnected (reason %d)\n", reason);
-        server->startAdvertising();
+        if (s_bleRunning) {
+            NimBLEDevice::getAdvertising()->start();
+        }
     }
 };
 
@@ -252,34 +253,51 @@ void bleConfigBegin()
 
     Serial.println("[BLE] Starting BLE provisioning service");
 
-    NimBLEDevice::init("EinkDisplay");
-    NimBLEDevice::setPower(9);  // +9 dBm
+    if (!s_initialized) {
+        NimBLEDevice::init("EinkDisplay");
+        NimBLEDevice::setPower(9);  // +9 dBm
 
-    s_server = NimBLEDevice::createServer();
-    s_server->setCallbacks(&s_serverCallbacks);
+        s_server = NimBLEDevice::createServer();
+        s_server->setCallbacks(&s_serverCallbacks);
 
-    s_service = s_server->createService(SVC_UUID);
+        s_service = s_server->createService(SVC_UUID);
 
-    addChar(s_service, WIFI_SSID_UUID, &s_cbSsid);
-    addChar(s_service, WIFI_PASS_UUID, &s_cbPass);
-    addChar(s_service, HA_URL_UUID,    &s_cbHaUrl);
-    addChar(s_service, HA_TOKEN_UUID,  &s_cbHaToken);
-    addChar(s_service, HA_TLS_UUID,    &s_cbHaTls);
-    addChar(s_service, NWS_LAT_UUID,   &s_cbLat);
-    addChar(s_service, NWS_LON_UUID,   &s_cbLon);
-    addChar(s_service, TZ_POSIX_UUID,  &s_cbTz);
-    addChar(s_service, SCREEN_DUR_UUID,&s_cbScreenDur);
-    addChar(s_service, ENTITIES_UUID,  &s_cbEntities);
-    addChar(s_service, CFG_URL_UUID,   &s_cbCfgUrl);
+        addChar(s_service, WIFI_SSID_UUID, &s_cbSsid);
+        addChar(s_service, WIFI_PASS_UUID, &s_cbPass);
+        addChar(s_service, HA_URL_UUID,    &s_cbHaUrl);
+        addChar(s_service, HA_TOKEN_UUID,  &s_cbHaToken);
+        addChar(s_service, HA_TLS_UUID,    &s_cbHaTls);
+        addChar(s_service, NWS_LAT_UUID,   &s_cbLat);
+        addChar(s_service, NWS_LON_UUID,   &s_cbLon);
+        addChar(s_service, TZ_POSIX_UUID,  &s_cbTz);
+        addChar(s_service, SCREEN_DUR_UUID,&s_cbScreenDur);
+        addChar(s_service, ENTITIES_UUID,  &s_cbEntities);
+        addChar(s_service, CFG_URL_UUID,   &s_cbCfgUrl);
 
-    // Note: in NimBLE-Arduino v2 services start automatically with the server.
-    // s_service->start() is a no-op / deprecated; we just start the server.
-    s_server->start();
+        s_server->start();
+
+        NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+        adv->enableScanResponse(true);
+
+        // Put device name and standard flags into the primary advertisement packet
+        NimBLEAdvertisementData advData;
+        advData.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+        advData.setName("EinkDisplay");
+        adv->setAdvertisementData(advData);
+
+        // Put device name and service UUID into scan response
+        NimBLEAdvertisementData scanData;
+        scanData.setName("EinkDisplay");
+        scanData.addServiceUUID(SVC_UUID);
+        adv->setScanResponseData(scanData);
+
+        s_initialized = true;
+    }
 
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-    adv->addServiceUUID(SVC_UUID);
-    adv->enableScanResponse(true);
-    adv->start();
+    if (adv) {
+        adv->start();
+    }
 
     s_bleRunning = true;
     Serial.println("[BLE] Advertising as 'EinkDisplay'");
@@ -289,24 +307,23 @@ void bleConfigEnd()
 {
     if (!s_bleRunning) return;
 
-    Serial.println("[BLE] Stopping BLE");
-
-    NimBLEDevice::getAdvertising()->stop();
-    // Disconnect all clients cleanly by iterating connected peers.
-    const uint8_t count = s_server->getConnectedCount();
-    for (uint8_t i = 0; i < count; ++i) {
-        NimBLEConnInfo info = s_server->getPeerInfo(0);  // always index 0 after each disconnect
-        s_server->disconnect(info);
-        delay(10);  // brief yield so the stack can process the disconnect
-    }
-    // Deinitialize NimBLE so the radio is fully released for Wi-Fi.
-    NimBLEDevice::deinit(/*clearAll=*/true);
-
-    s_server  = nullptr;
-    s_service = nullptr;
+    Serial.println("[BLE] Stopping BLE advertising");
     s_bleRunning = false;
 
-    Serial.println("[BLE] BLE stopped");
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    if (adv) {
+        adv->stop();
+    }
+
+    // Disconnect any active connections cleanly
+    if (s_server) {
+        std::vector<uint16_t> peers = s_server->getPeerDevices();
+        for (uint16_t handle : peers) {
+            s_server->disconnect(handle);
+        }
+    }
+
+    Serial.println("[BLE] BLE stopped (idle)");
 }
 
 bool bleConfigHasClients()
